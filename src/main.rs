@@ -1,12 +1,10 @@
-use std::collections::HashMap;
 use clap::Parser;
-use serde_json::{Value};
 use reqwest::{Method};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(index = 1, required = true)]
+    #[arg(required = true)]
     url: String,
 
     #[arg(short = 'X', long = "method")]
@@ -33,8 +31,13 @@ async fn run(
     data: Option<String>
 ){
     let client = reqwest::Client::new();
-    let mut request_builder = client.request(method, url);
-
+    let mut request_builder = client
+        .request(method, url);
+    if let Some(data) = data{
+        request_builder = request_builder
+            .header("Content-Type","application/x-www-form-urlencoded");
+        request_builder = request_builder.body(data);
+    }
     if let Some(header) = header {
         request_builder = header.iter().fold(request_builder, |builder, item| {
             let parts: Vec<&str> = item.split(':').collect();
@@ -46,11 +49,6 @@ async fn run(
         });
     }
 
-
-    if let Some(data) = data{
-        let json_data:HashMap<String,Value> = serde_json::from_str(&data).expect("data数据格式错误");
-        request_builder = request_builder.json(&json_data);
-    }
     let mut res = request_builder.send().await.expect("请求错误");
     println!("status: {:#?}",res.status());
     println!("headers: {:#?}",res.headers());
