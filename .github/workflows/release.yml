@@ -77,18 +77,19 @@ jobs:
       - name: Build Release
         shell: bash
         run: |
-               mkdir -p dist temp
+          mkdir -p dist temp
           # 自定义拷贝要打包到压缩包里的文件
-               cp -r LICENSE README.md CHANGELOG.md config.yaml ./templates temp/
-               cd temp
-               version="${{ steps.tagName.outputs.tag }}"
-               if [ "${{ matrix.build }}" = "windows" ]; then
-               cp "../target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" ./
-               7z a -r "../dist/${{ env.BIN_NAME }}-$version-${{ matrix.release-file-suffix }}" *
-               else
-               cp "../target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" ./
-               tar czf "../dist/${{ env.BIN_NAME }}-$version-${{ matrix.release-file-suffix }}" *
-               fi
+          cp -r LICENSE README.md CHANGELOG.md config.yaml ./templates temp/
+          cd temp
+          version="${{ steps.tagName.outputs.tag }}"
+          if [ "${{ matrix.build }}" = "windows" ]; then
+            cp "../target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" ./
+            7z a -r "../dist/${{ env.BIN_NAME }}-$version-${{ matrix.release-file-suffix }}" *
+          else
+            cp "../target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" ./
+            tar czf "../dist/${{ env.BIN_NAME }}-$version-${{ matrix.release-file-suffix }}" *
+          fi
+      
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
