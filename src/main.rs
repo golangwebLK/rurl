@@ -1,5 +1,6 @@
 use std::borrow::Cow;
-use std::fs::{read};
+use std::fs::{create_dir_all, File, metadata, read};
+use std::io::Write;
 use std::path::Path;
 use clap::Parser;
 use reqwest::{Method, multipart};
@@ -22,13 +23,23 @@ struct Args {
 
     #[arg(short = 'F', long = "form")]
     form: Option<Vec<String>>,
+
+    #[arg(short = 'O', long = "remote-name")]
+    remote_name: Option<String>,
 }
 
 
 #[tokio::main]
 async fn main(){
     let args = Args::parse();
-    run(args.url, args.method, args.header, args.data,args.form).await;
+    run(
+        args.url,
+        args.method,
+        args.header,
+        args.data,
+        args.form,
+        args.remote_name
+    ).await;
 }
 
 async fn run(
@@ -36,8 +47,8 @@ async fn run(
     method: Method,
     header: Option<Vec<String>>,
     data: Option<String>,
-    form: Option<Vec<String>>
-
+    form: Option<Vec<String>>,
+    remote_name: Option<String>
 ){
     let client = reqwest::Client::new();
     let mut request_builder = client
@@ -90,17 +101,33 @@ async fn run(
         });
     }
 
+
     let mut res = request_builder.send().await.expect("请求错误");
     println!("status: {:#?}",res.status());
     println!("headers: {:#?}",res.headers());
     println!("content_length: {:#?}",res.content_length().expect("文本长度获取失败"));
     println!("remote_addr: {:#?}",res.remote_addr().expect("远程地址获取失败"));
     println!("body:");
-    while let Some(chunk) = res.chunk().await.expect("响应失败") {
-        if let Ok(utf8_string) = String::from_utf8(Vec::from(chunk.clone())) {
-            println!("{:#?}", utf8_string);
-        } else {
-            println!("{:#?}", String::from_utf8_lossy(&chunk));
+    if let Some(rname) = remote_name{
+        let file_path = Path::new(&rname);
+        let directory = file_path.parent().unwrap();
+        let dir_path = directory.to_str().unwrap();
+        if metadata(dir_path).is_err(){
+            create_dir_all(dir_path).expect("路径创建失败");
+        }
+        let file_name = file_path.file_name().unwrap().to_str().unwrap();
+        let mut file = File::create(file_name).unwrap();
+        while let Some(chunk) = res.chunk().await.expect("响应失败") {
+            file.write_all(&chunk).unwrap();
+        }
+    }else {
+        while let Some(chunk) = res.chunk().await.expect("响应失败") {
+            if let Ok(utf8_string) = String::from_utf8(Vec::from(chunk.clone())) {
+                println!("{:#?}", utf8_string);
+            } else {
+                println!("{:#?}", String::from_utf8_lossy(&chunk));
+            }
         }
     }
+
 }
