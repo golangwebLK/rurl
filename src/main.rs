@@ -1,5 +1,9 @@
+use std::borrow::Cow;
+use std::fs::{read};
+use std::path::Path;
 use clap::Parser;
-use reqwest::{Method};
+use reqwest::{Method, multipart};
+use reqwest::multipart::Part;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -15,20 +19,25 @@ struct Args {
 
     #[arg(short = 'd', long = "data")]
     data: Option<String>,
+
+    #[arg(short = 'F', long = "form")]
+    form: Option<Vec<String>>,
 }
 
 
 #[tokio::main]
 async fn main(){
     let args = Args::parse();
-    run(args.url, args.method, args.header, args.data).await;
+    run(args.url, args.method, args.header, args.data,args.form).await;
 }
 
 async fn run(
     url: String,
     method: Method,
     header: Option<Vec<String>>,
-    data: Option<String>
+    data: Option<String>,
+    form: Option<Vec<String>>
+
 ){
     let client = reqwest::Client::new();
     let mut request_builder = client
@@ -38,6 +47,38 @@ async fn run(
             .header("Content-Type","application/x-www-form-urlencoded");
         request_builder = request_builder.body(data);
     }
+    if let Some(form) = form {
+        request_builder = request_builder
+            .header("Content-Type","multipart/form-data");
+        let form_data: Vec<_> = form.iter().flat_map(|s| s.split('&')).map(|s|s.to_owned()).collect();
+        let data = multipart::Form::new();
+
+        let forms = form_data.into_iter().fold(data, |data, field| {
+            let parts: Vec<_>  = field.splitn(2, '=').map(|s|s.to_owned()).collect();
+            if parts.len() == 2 {
+                if let Some(file_path) = parts[1].strip_prefix('@') {
+                    let file_path = file_path.trim();
+                    if Path::new(file_path).exists() {
+                        let file = read(file_path).expect("文件读取失败");
+                        let filename = Path::new(file_path).file_name()
+                            .expect("无法获取文件名")
+                            .to_string_lossy()
+                            .to_string();
+                        let part = Part::bytes(Cow::from(file.clone())).file_name(filename);
+                        data.part(parts[0].clone(), part)
+                    } else {
+                        panic!("文件路径错误: {}", file_path);
+                    }
+                } else {
+                    data.text(parts[0].clone(), parts[1].clone())
+                }
+            }else {
+                panic!("表单字段格式错误: {}", field);
+            }
+        });
+        request_builder = request_builder.multipart(forms);
+    }
+
     if let Some(header) = header {
         request_builder = header.iter().fold(request_builder, |builder, item| {
             let parts: Vec<&str> = item.split(':').collect();
