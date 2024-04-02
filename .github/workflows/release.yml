@@ -1,0 +1,102 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  # 可更换成自己项目编译后的名称
+  BIN_NAME: "rurl"
+
+jobs:
+  build:
+    name: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # 不需要构建 macOS ARM 发行版可删除 macos-arm 构建项
+        build: [linux, macos, macos-arm, windows]
+        include:
+          - build: linux
+            os: ubuntu-20.04
+            run: sudo apt-get -y install musl-tools
+            rust: stable
+            target: x86_64-unknown-linux-musl
+            release-file-suffix: x86_64-linux.tar.gz
+          - build: macos
+            os: macos-12
+            rust: stable
+            target: x86_64-apple-darwin
+            release-file-suffix: x86_64-macos.tar.gz
+          - build: windows
+            os: windows-2019
+            rust: stable-x86_64-msvc
+            target: x86_64-pc-windows-msvc
+            release-file-suffix: x86_64-windows.7z
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Get Tag Name
+        id: tagName
+        uses: olegtarasov/get-tag@v2.1.1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Install prerequisites
+        if: matrix.run != ''
+        run: ${{ matrix.run }}
+
+      - name: Build binary
+        run: cargo build --verbose --release --target ${{ matrix.target }}
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Strip binary (linux and macos)
+        if: matrix.build == 'linux' || matrix.build == 'macos' || matrix.build == 'macos-arm'
+        run: strip "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}"
+
+      - name: Generate Changelog
+        id: changelog
+        uses: MatteoCampinoti94/changelog-to-release@v1.0.0
+        with:
+          version-name: ${{ steps.tagName.outputs.tag }}
+
+      - name: Build Release
+        shell: bash
+        run: |
+               mkdir -p dist temp
+          # 自定义拷贝要打包到压缩包里的文件
+               cp -r LICENSE README.md CHANGELOG.md config.yaml ./templates temp/
+               cd temp
+               version="${{ steps.tagName.outputs.tag }}"
+               if [ "${{ matrix.build }}" = "windows" ]; then
+               cp "../target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" ./
+               7z a -r "../dist/${{ env.BIN_NAME }}-$version-${{ matrix.release-file-suffix }}" *
+               else
+               cp "../target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" ./
+               tar czf "../dist/${{ env.BIN_NAME }}-$version-${{ matrix.release-file-suffix }}" *
+               fi
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: ${{ steps.tagName.outputs.tag }}
+          name: ${{ steps.changelog.outputs.title }}
+          draft: false
+          prerelease: false
+          body: ${{ steps.changelog.outputs.body }}
+          files: "dist/**"
