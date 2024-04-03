@@ -10,4 +10,5 @@ clap = { version = "4.5.4", features = ["derive"] }
 reqwest = { version = "0.12.2", features = ["json", "multipart"] }
 serde = "1.0.197"
 serde_json = "1.0.115"
+termcolor = "1.4.1"
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }

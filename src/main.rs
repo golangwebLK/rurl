@@ -8,7 +8,7 @@ struct Args {
     #[arg(required = true)]
     url: String,
 
-    #[arg(short = 'X', long = "method")]
+    #[arg(short = 'X', long = "request")]
     method: Option<Method>,
 
     #[arg(short = 'H', long = "header")]
@@ -20,7 +20,7 @@ struct Args {
     #[arg(short = 'F', long = "form")]
     form: Option<Vec<String>>,
 
-    #[arg(short = 'O', long = "remote-name")]
+    #[arg(short = 'o', long = "output")]
     remote_name: Option<String>,
 }
 
