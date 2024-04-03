@@ -1,10 +1,6 @@
-use std::borrow::Cow;
-use std::fs::{create_dir_all, File, metadata, read};
-use std::io::Write;
-use std::path::Path;
 use clap::Parser;
-use reqwest::{Method, multipart};
-use reqwest::multipart::Part;
+use reqwest::{Method};
+use rurl::http;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -13,7 +9,7 @@ struct Args {
     url: String,
 
     #[arg(short = 'X', long = "method")]
-    method: Method,
+    method: Option<Method>,
 
     #[arg(short = 'H', long = "header")]
     header: Option<Vec<String>>,
@@ -32,7 +28,7 @@ struct Args {
 #[tokio::main]
 async fn main(){
     let args = Args::parse();
-    run(
+    http::run(
         args.url,
         args.method,
         args.header,
@@ -40,94 +36,4 @@ async fn main(){
         args.form,
         args.remote_name
     ).await;
-}
-
-async fn run(
-    url: String,
-    method: Method,
-    header: Option<Vec<String>>,
-    data: Option<String>,
-    form: Option<Vec<String>>,
-    remote_name: Option<String>
-){
-    let client = reqwest::Client::new();
-    let mut request_builder = client
-        .request(method, url);
-    if let Some(data) = data{
-        request_builder = request_builder
-            .header("Content-Type","application/x-www-form-urlencoded");
-        request_builder = request_builder.body(data);
-    }
-    if let Some(form) = form {
-        request_builder = request_builder
-            .header("Content-Type","multipart/form-data");
-        let form_data: Vec<_> = form.iter().flat_map(|s| s.split('&')).map(|s|s.to_owned()).collect();
-        let data = multipart::Form::new();
-
-        let forms = form_data.into_iter().fold(data, |data, field| {
-            let parts: Vec<_>  = field.splitn(2, '=').map(|s|s.to_owned()).collect();
-            if parts.len() == 2 {
-                if let Some(file_path) = parts[1].strip_prefix('@') {
-                    let file_path = file_path.trim();
-                    if Path::new(file_path).exists() {
-                        let file = read(file_path).expect("文件读取失败");
-                        let filename = Path::new(file_path).file_name()
-                            .expect("无法获取文件名")
-                            .to_string_lossy()
-                            .to_string();
-                        let part = Part::bytes(Cow::from(file.clone())).file_name(filename);
-                        data.part(parts[0].clone(), part)
-                    } else {
-                        panic!("文件路径错误: {}", file_path);
-                    }
-                } else {
-                    data.text(parts[0].clone(), parts[1].clone())
-                }
-            }else {
-                panic!("表单字段格式错误: {}", field);
-            }
-        });
-        request_builder = request_builder.multipart(forms);
-    }
-
-    if let Some(header) = header {
-        request_builder = header.iter().fold(request_builder, |builder, item| {
-            let parts: Vec<&str> = item.split(':').collect();
-            if parts.len() == 2 {
-                builder.header(parts[0].trim().to_string(), parts[1].trim().to_string())
-            } else {
-                panic!("header格式错误: {}", item);
-            }
-        });
-    }
-
-
-    let mut res = request_builder.send().await.expect("请求错误");
-    println!("status: {:#?}",res.status());
-    println!("headers: {:#?}",res.headers());
-    println!("content_length: {:#?}",res.content_length().expect("文本长度获取失败"));
-    println!("remote_addr: {:#?}",res.remote_addr().expect("远程地址获取失败"));
-    println!("body:");
-    if let Some(rname) = remote_name{
-        let file_path = Path::new(&rname);
-        let directory = file_path.parent().unwrap();
-        let dir_path = directory.to_str().unwrap();
-        if metadata(dir_path).is_err(){
-            create_dir_all(dir_path).expect("路径创建失败");
-        }
-        let file_name = file_path.file_name().unwrap().to_str().unwrap();
-        let mut file = File::create(file_name).unwrap();
-        while let Some(chunk) = res.chunk().await.expect("响应失败") {
-            file.write_all(&chunk).unwrap();
-        }
-    }else {
-        while let Some(chunk) = res.chunk().await.expect("响应失败") {
-            if let Ok(utf8_string) = String::from_utf8(Vec::from(chunk.clone())) {
-                println!("{:#?}", utf8_string);
-            } else {
-                println!("{:#?}", String::from_utf8_lossy(&chunk));
-            }
-        }
-    }
-
 }
